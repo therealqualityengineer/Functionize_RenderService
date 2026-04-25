@@ -74,6 +74,7 @@ CONTEXT:
 - Base URL: https://practicesoftwaretesting.com
 
 STRICT RULES:
+- Use ACTUAL values from the test case (do NOT replace with examples)
 - DO NOT return code or markdown
 - DO NOT use ``` or quotes
 - Each step must be on a new line
@@ -83,10 +84,10 @@ STRICT RULES:
 - Add final verification step
 - No explanation
 
-EXPECTED FORMAT:
-Open https://practicesoftwaretesting.com
+EXAMPLE FORMAT (structure only, NOT data):
+Open https://example.com
 Click Login button
-Type admin@xyz.com into Username field
+Type user@example.com into Username field
 Type password into Password field
 Click Login button
 Verify dashboard page is displayed
