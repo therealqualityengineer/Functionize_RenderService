@@ -14,7 +14,7 @@ API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
-# 🔹 Gemini Client (NEW SDK)
+# 🔹 Gemini Client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # 🔹 Extract Jira description (ADF → text)
@@ -58,6 +58,7 @@ def jira_webhook():
         issue_data = response.json()
 
         if "fields" not in issue_data:
+            print("❌ Jira API Error:", issue_data)
             return jsonify({"error": issue_data}), 400
 
         description_raw = issue_data["fields"]["description"]
@@ -65,7 +66,7 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 GEMINI AI (NEW WORKING VERSION)
+        # 🔥 GEMINI AI
         prompt = f"""
 Convert the following manual test case into Functionize test steps.
 
@@ -85,11 +86,18 @@ Test Case:
                 contents=prompt
             )
 
-            steps = ai_response.text
+            # 🔍 FULL DEBUG (IMPORTANT)
+            print("\n🔍 Raw Gemini Response:\n", ai_response)
+
+            # ✅ SAFE extraction
+            if hasattr(ai_response, "text") and ai_response.text:
+                steps = ai_response.text
+            else:
+                steps = str(ai_response)
 
         except Exception as e:
             print("❌ Gemini Error:", str(e))
-            steps = "AI generation failed"
+            steps = f"AI failed: {str(e)}"
 
         print("\n--- AI Generated Steps ---\n", steps)
 
