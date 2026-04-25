@@ -1,14 +1,14 @@
 from flask import Flask, request, jsonify
 import requests
 import base64
+import os
 
 app = Flask(__name__)
-app.config["ALLOWED_HOSTS"] = ["*"]
 
-# 🔹 Jira Config (UPDATE THESE)
+# 🔹 Jira Config (from environment variables)
 JIRA_DOMAIN = "aruntieto-demo.atlassian.net"
-EMAIL = "arunramalingam99@gmail.com"
-API_TOKEN = "ATATT3xFfGF0TJe-zYk6J70kJWiWeqiO3AwzN55rYtjzYmq7zmvUyBOz4-3CEa_C0lhFqmMmmQveAjCPNTSAqd1tqPw_RbM1MzcA71keTAtwTnWqKB2y1vP6q6agU7xDw9Fysmt-mUuNZzQL8ccePy-2bj8gdsowm7CG5Lctcm6JRIo1YZiUTy4=95EAB6A6"
+EMAIL = os.getenv("JIRA_EMAIL")
+API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
 # 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
@@ -28,6 +28,11 @@ def extract_text(description):
             text += "\n"
 
     return text.strip()
+
+# 🔹 Health check (for testing)
+@app.route("/", methods=["GET"])
+def home():
+    return "Jira AI Webhook Running 🚀", 200
 
 # 🔹 Webhook endpoint
 @app.route("/jira-webhook", methods=["POST"])
@@ -52,7 +57,7 @@ def jira_webhook():
 
         if "fields" not in issue_data:
             print("❌ Jira API Error:", issue_data)
-            return jsonify({"error": issue_data})
+            return jsonify({"error": issue_data}), 400
 
         # 🔹 Extract description
         description_raw = issue_data["fields"]["description"]
@@ -60,7 +65,7 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 MOCK AI OUTPUT (no API dependency)
+        # 🔥 MOCK AI OUTPUT (replace later with OpenAI/Gemini)
         steps = f"""
 Environment: QA
 Base URL: https://practicesoftwaretesting.com
@@ -107,8 +112,10 @@ Verify dashboard is displayed
 
     except Exception as e:
         print("❌ Error:", str(e))
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
-# 🔹 Run server
+
+# 🔹 Run server (Render compatible)
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
