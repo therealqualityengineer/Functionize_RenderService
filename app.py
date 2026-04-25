@@ -79,7 +79,7 @@ Test Case:
 {description}
 """
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-1.0-pro")
         ai_response = model.generate_content(prompt)
 
         steps = ai_response.text
