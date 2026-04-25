@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import base64
 import os
-import google.generativeai as genai
+from google import genai
 
 app = Flask(__name__)
 
@@ -14,8 +14,8 @@ API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
-# 🔹 Gemini Config
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# 🔹 Gemini Client (NEW SDK)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # 🔹 Extract Jira description (ADF → text)
 def extract_text(description):
@@ -65,7 +65,7 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 GEMINI AI
+        # 🔥 GEMINI AI (NEW WORKING VERSION)
         prompt = f"""
 Convert the following manual test case into Functionize test steps.
 
@@ -79,10 +79,17 @@ Test Case:
 {description}
 """
 
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
-        ai_response = model.generate_content(prompt)
+        try:
+            ai_response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt
+            )
 
-        steps = ai_response.text
+            steps = ai_response.text
+
+        except Exception as e:
+            print("❌ Gemini Error:", str(e))
+            steps = "AI generation failed"
 
         print("\n--- AI Generated Steps ---\n", steps)
 
