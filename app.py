@@ -10,6 +10,7 @@ JIRA_DOMAIN = "aruntieto-demo.atlassian.net"
 EMAIL = os.getenv("JIRA_EMAIL")
 API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
+# 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
 # 🔹 OpenRouter Config
@@ -30,38 +31,6 @@ def extract_text(description):
 
     return text.strip()
 
-# 🔹 Load App Context (Mini RAG)
-def load_app_context():
-    try:
-        with open("app_context.txt", "r") as f:
-            return f.read()
-    except:
-        return ""
-
-# 🔹 Simple AI Call (no strict rules)
-def call_ai(prompt):
-    response = requests.post(
-        url="https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "mistralai/mistral-7b-instruct",
-            "temperature": 0.3,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
-        }
-    )
-
-    result = response.json()
-
-    if "choices" in result and len(result["choices"]) > 0:
-        return result["choices"][0]["message"]["content"]
-
-    return "AI failed to respond."
-
 # 🔹 Health check
 @app.route("/", methods=["GET"])
 def home():
@@ -72,8 +41,8 @@ def home():
 def jira_webhook():
     try:
         data = request.get_json(force=True)
-        issue_key = data["issue"]["key"]
 
+        issue_key = data["issue"]["key"]
         print(f"\nReceived webhook for: {issue_key}")
 
         # 🔹 Fetch Jira issue
@@ -88,45 +57,79 @@ def jira_webhook():
         issue_data = response.json()
 
         if "fields" not in issue_data:
+            print("❌ Jira API Error:", issue_data)
             return jsonify({"error": issue_data}), 400
 
-        description = extract_text(issue_data["fields"]["description"])
-        print("\n--- Description ---\n", description)
+        description_raw = issue_data["fields"]["description"]
+        description = extract_text(description_raw)
 
-        app_context = load_app_context()
+        print("\n--- Clean Description ---\n", description)
 
-        # 🔥 SIMPLE PROMPT
+        # 🔥 HIGH-QUALITY PROMPT
         prompt = f"""
-Generate test steps for the given test case.
+Convert the following manual test case into clean, automation-ready Functionize steps.
 
-Also include:
-- Negative test scenarios
-- Test coverage analysis
+CONTEXT:
+- Environment: QA
+- Base URL: https://practicesoftwaretesting.com
 
-Use simple steps like:
-Open, Click, Type, Verify
+STRICT RULES:
+- DO NOT return code or markdown
+- Include necessary navigation steps (like clicking Login page/button before typing)
+- DO NOT use ``` or quotes
+- Each step must be on a new line
+- Use only these actions: Open, Click, Type, Verify
+- Use clear field names (Username field, Password field)
+- Keep steps short and readable
+- Add final verification step
+- No explanation
 
-Keep output clear and easy to understand.
+EXAMPLE FORMAT (structure only, NOT data):
+Open https://example.com
+Click Login button
+Type user@example.com into Username field
+Type password into Password field
+Click Login button
+Verify dashboard page is displayed
 
-Application Details:
-{app_context}
-
-Test Case:
+TEST CASE:
 {description}
 """
 
-        # 🔥 Call AI
-        output = call_ai(prompt)
+        # 🔥 OpenRouter API call
+        try:
+            ai_response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "openrouter/free",
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ]
+                }
+            )
 
-        print("\n--- AI OUTPUT ---\n", output)
+            print("\n🔍 Raw OpenRouter Response:\n", ai_response.text)
 
-        # 🔹 Post to Jira
+            result = ai_response.json()
+
+            # ✅ Safe extraction
+            if "choices" in result and len(result["choices"]) > 0:
+                steps = result["choices"][0]["message"]["content"]
+            else:
+                steps = "AI returned no valid response"
+
+        except Exception as e:
+            print("❌ OpenRouter Error:", str(e))
+            steps = f"AI failed: {str(e)}"
+
+        print("\n--- AI Generated Steps ---\n", steps)
+
+        # 🔹 Add comment to Jira
         comment_url = f"https://{JIRA_DOMAIN}/rest/api/3/issue/{issue_key}/comment"
-
-        comment_text = f"""🤖 AI Generated Test Design
-
-{output}
-"""
 
         comment_body = {
             "body": {
@@ -138,7 +141,7 @@ Test Case:
                         "content": [
                             {
                                 "type": "text",
-                                "text": comment_text
+                                "text": "🤖 AI Generated Test Steps:\n\n" + steps
                             }
                         ]
                     }
@@ -147,7 +150,9 @@ Test Case:
         }
 
         headers.update({"Content-Type": "application/json"})
-        requests.post(comment_url, json=comment_body, headers=headers)
+        comment_response = requests.post(comment_url, json=comment_body, headers=headers)
+
+        print("\n--- Jira Comment Status ---\n", comment_response.status_code)
 
         return jsonify({"status": "Success", "issue": issue_key})
 
