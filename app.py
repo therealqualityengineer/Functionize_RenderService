@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify
 import requests
 import base64
 import os
+import google.generativeai as genai
 
 app = Flask(__name__)
 
-# 🔹 Jira Config (from environment variables)
+# 🔹 Jira Config
 JIRA_DOMAIN = "aruntieto-demo.atlassian.net"
 EMAIL = os.getenv("JIRA_EMAIL")
 API_TOKEN = os.getenv("JIRA_API_TOKEN")
@@ -13,10 +14,12 @@ API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
+# 🔹 Gemini Config
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 # 🔹 Extract Jira description (ADF → text)
 def extract_text(description):
     text = ""
-
     if not description:
         return text
 
@@ -29,22 +32,21 @@ def extract_text(description):
 
     return text.strip()
 
-# 🔹 Health check (for testing)
+# 🔹 Health check
 @app.route("/", methods=["GET"])
 def home():
     return "Jira AI Webhook Running 🚀", 200
 
-# 🔹 Webhook endpoint
+# 🔹 Webhook
 @app.route("/jira-webhook", methods=["POST"])
 def jira_webhook():
     try:
         data = request.get_json(force=True)
 
-        # 🔹 Get issue key from webhook
         issue_key = data["issue"]["key"]
         print(f"\nReceived webhook for: {issue_key}")
 
-        # 🔹 Fetch full Jira issue
+        # 🔹 Fetch Jira issue
         url = f"https://{JIRA_DOMAIN}/rest/api/3/issue/{issue_key}"
 
         headers = {
@@ -56,30 +58,33 @@ def jira_webhook():
         issue_data = response.json()
 
         if "fields" not in issue_data:
-            print("❌ Jira API Error:", issue_data)
             return jsonify({"error": issue_data}), 400
 
-        # 🔹 Extract description
         description_raw = issue_data["fields"]["description"]
         description = extract_text(description_raw)
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 MOCK AI OUTPUT (replace later with OpenAI/Gemini)
-        steps = f"""
-Environment: QA
-Base URL: https://practicesoftwaretesting.com
+        # 🔥 GEMINI AI
+        prompt = f"""
+Convert the following manual test case into Functionize test steps.
 
-Open Application
-Navigate to base URL
-Click Login link
-Type "admin@practicesoftwaretesting.com" into Username field
-Type "welcome01" into Password field
-Click Login button
-Verify dashboard is displayed
+Rules:
+- Use Click, Type, Verify
+- Keep steps clear and short
+- Add final verification
+- No explanation
+
+Test Case:
+{description}
 """
 
-        print("\n--- Generated Steps ---\n", steps)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        ai_response = model.generate_content(prompt)
+
+        steps = ai_response.text
+
+        print("\n--- AI Generated Steps ---\n", steps)
 
         # 🔹 Add comment to Jira
         comment_url = f"https://{JIRA_DOMAIN}/rest/api/3/issue/{issue_key}/comment"
@@ -103,7 +108,6 @@ Verify dashboard is displayed
         }
 
         headers.update({"Content-Type": "application/json"})
-
         comment_response = requests.post(comment_url, json=comment_body, headers=headers)
 
         print("\n--- Jira Comment Status ---\n", comment_response.status_code)
@@ -115,7 +119,7 @@ Verify dashboard is displayed
         return jsonify({"error": str(e)}), 500
 
 
-# 🔹 Run server (Render compatible)
+# 🔹 Run server
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
