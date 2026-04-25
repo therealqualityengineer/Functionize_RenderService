@@ -67,30 +67,36 @@ def jira_webhook():
 
         # 🔥 HIGH-QUALITY PROMPT
         prompt = f"""
-Convert the following manual test case into clean, automation-ready Functionize steps.
+Convert the following manual test case into automation-ready test steps.
+
+Also include:
+- Negative test scenarios
+- Test coverage
 
 CONTEXT:
 - Environment: QA
 - Base URL: https://practicesoftwaretesting.com
+- Username: admin@practicesoftwaretesting.com
+- Password: welcome01
 
-STRICT RULES:
-- DO NOT return code or markdown
-- Include necessary navigation steps (like clicking Login page/button before typing)
-- DO NOT use ``` or quotes
-- Each step must be on a new line
-- Use only these actions: Open, Click, Type, Verify
-- Use clear field names (Username field, Password field)
-- Keep steps short and readable
-- Add final verification step
+RULES:
+- Use only: Open, Click, Type, Verify
+- Each step on new line
+- Keep steps simple and clear
+- Include navigation steps (like Sign in before login)
+- No code, no markdown, no quotes
 - No explanation
 
-EXAMPLE FORMAT (structure only, NOT data):
-Open https://example.com
-Click Login button
-Type user@example.com into Username field
-Type password into Password field
-Click Login button
-Verify dashboard page is displayed
+FORMAT:
+
+Test Steps:
+<steps>
+
+Negative Scenarios:
+<list>
+
+Coverage:
+<short summary>
 
 TEST CASE:
 {description}
