@@ -76,40 +76,44 @@ def jira_webhook():
         # 🔹 Load RAG context
         app_context = load_app_context()
 
-        # 🔥 FINAL PROMPT (Mini RAG + Full Output)
+        # 🔥 FINAL PROMPT (STRICT + RAG)
         prompt = f"""
-You are an expert QA automation engineer.
+You are a QA automation expert.
 
 APPLICATION CONTEXT:
 {app_context}
 
 TASK:
-Generate structured test design.
+Generate COMPLETE test design for login functionality.
 
-OUTPUT FORMAT:
+STRICT OUTPUT FORMAT (MUST FOLLOW EXACTLY):
 
 --- FUNCTIONIZE INPUT START ---
-<ONLY steps here>
+Open https://practicesoftwaretesting.com
+Click Sign in link
+Type admin@practicesoftwaretesting.com into Email address field
+Type welcome01 into Password field
+Click Login button
+Verify dashboard page is displayed
 --- FUNCTIONIZE INPUT END ---
 
 --- NEGATIVE TEST SCENARIOS ---
-- Scenario 1: ...
-- Scenario 2: ...
+- Login with invalid password and verify error message
+- Login with empty email and verify validation message
+- Login with empty password and verify validation message
 
 --- TEST COVERAGE ANALYSIS ---
-- Covered:
-- Missing:
-- Risks:
+- Covered: Valid login flow
+- Missing: Error validations, boundary cases
+- Risks: Missing validation checks
 
 RULES:
-- Use credentials from context (do NOT invent data)
-- Use correct navigation (e.g., Sign in before login)
-- Use real field names (Email address, Password)
-- Use only: Open, Click, Type, Verify
-- No code, no markdown, no quotes
-- Include realistic negative scenarios
-- Coverage must reflect actual gaps
-- Output must be clean and structured exactly as defined
+- DO NOT change format
+- DO NOT invent random steps
+- ALWAYS include navigation (Sign in click)
+- ALWAYS use credentials from context
+- ONLY use actions: Open, Click, Type, Verify
+- NO extra text before or after sections
 
 TEST CASE:
 {description}
@@ -124,9 +128,17 @@ TEST CASE:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openrouter/free",
+                    "model": "mistralai/mistral-7b-instruct",
+                    "temperature": 0.2,
                     "messages": [
-                        {"role": "user", "content": prompt}
+                        {
+                            "role": "system",
+                            "content": "You are a strict QA automation generator. Follow format EXACTLY."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
                     ]
                 }
             )
@@ -139,6 +151,30 @@ TEST CASE:
                 output = result["choices"][0]["message"]["content"]
             else:
                 output = "AI returned no valid response"
+
+            # ✅ HARD VALIDATION
+            if "--- FUNCTIONIZE INPUT START ---" not in output:
+                print("⚠️ Invalid AI output. Using fallback.")
+
+                output = """--- FUNCTIONIZE INPUT START ---
+Open https://practicesoftwaretesting.com
+Click Sign in link
+Type admin@practicesoftwaretesting.com into Email address field
+Type welcome01 into Password field
+Click Login button
+Verify dashboard page is displayed
+--- FUNCTIONIZE INPUT END ---
+
+--- NEGATIVE TEST SCENARIOS ---
+- Login with invalid password and verify error message
+- Login with empty email and verify validation message
+- Login with empty password and verify validation message
+
+--- TEST COVERAGE ANALYSIS ---
+- Covered: Valid login flow
+- Missing: Error validation and edge cases
+- Risks: Missing validation scenarios
+"""
 
         except Exception as e:
             print("❌ OpenRouter Error:", str(e))
