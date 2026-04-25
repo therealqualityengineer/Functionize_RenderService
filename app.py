@@ -31,6 +31,14 @@ def extract_text(description):
 
     return text.strip()
 
+# 🔹 Load Mini RAG context
+def load_app_context():
+    try:
+        with open("app_context.txt", "r") as f:
+            return f.read()
+    except Exception:
+        return "No app context available"
+
 # 🔹 Health check
 @app.route("/", methods=["GET"])
 def home():
@@ -41,8 +49,8 @@ def home():
 def jira_webhook():
     try:
         data = request.get_json(force=True)
-
         issue_key = data["issue"]["key"]
+
         print(f"\nReceived webhook for: {issue_key}")
 
         # 🔹 Fetch Jira issue
@@ -65,33 +73,43 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 HIGH-QUALITY PROMPT
+        # 🔹 Load RAG context
+        app_context = load_app_context()
+
+        # 🔥 FINAL PROMPT (Mini RAG + Full Output)
         prompt = f"""
-Convert the following manual test case into clean, automation-ready Functionize steps.
+You are an expert QA automation engineer.
 
-CONTEXT:
-- Environment: QA
-- Base URL: https://practicesoftwaretesting.com
+APPLICATION CONTEXT:
+{app_context}
 
-STRICT RULES:
-- Use ACTUAL values from the test case (do NOT replace with examples)
-- Include necessary navigation steps (like clicking Login page/button before typing)
-- DO NOT return code or markdown
-- DO NOT use ``` or quotes
-- Each step must be on a new line
-- Use only these actions: Open, Click, Type, Verify
-- Use clear field names (Username field, Password field)
-- Keep steps short and readable
-- Add final verification step
-- No explanation
+TASK:
+Generate structured test design.
 
-EXAMPLE FORMAT (structure only, NOT data):
-Open https://example.com
-Click Login button
-Type user@example.com into Username field
-Type password into Password field
-Click Login button
-Verify dashboard page is displayed
+OUTPUT FORMAT:
+
+--- FUNCTIONIZE INPUT START ---
+<ONLY steps here>
+--- FUNCTIONIZE INPUT END ---
+
+--- NEGATIVE TEST SCENARIOS ---
+- Scenario 1: ...
+- Scenario 2: ...
+
+--- TEST COVERAGE ANALYSIS ---
+- Covered:
+- Missing:
+- Risks:
+
+RULES:
+- Use credentials from context (do NOT invent data)
+- Use correct navigation (e.g., Sign in before login)
+- Use real field names (Email address, Password)
+- Use only: Open, Click, Type, Verify
+- No code, no markdown, no quotes
+- Include realistic negative scenarios
+- Coverage must reflect actual gaps
+- Output must be clean and structured exactly as defined
 
 TEST CASE:
 {description}
@@ -117,20 +135,26 @@ TEST CASE:
 
             result = ai_response.json()
 
-            # ✅ Safe extraction
             if "choices" in result and len(result["choices"]) > 0:
-                steps = result["choices"][0]["message"]["content"]
+                output = result["choices"][0]["message"]["content"]
             else:
-                steps = "AI returned no valid response"
+                output = "AI returned no valid response"
 
         except Exception as e:
             print("❌ OpenRouter Error:", str(e))
-            steps = f"AI failed: {str(e)}"
+            output = f"AI failed: {str(e)}"
 
-        print("\n--- AI Generated Steps ---\n", steps)
+        print("\n--- FINAL AI OUTPUT ---\n", output)
 
         # 🔹 Add comment to Jira
         comment_url = f"https://{JIRA_DOMAIN}/rest/api/3/issue/{issue_key}/comment"
+
+        comment_text = f"""🤖 AI Generated Test Design
+
+👉 Copy ONLY the below section into Functionize
+
+{output}
+"""
 
         comment_body = {
             "body": {
@@ -142,7 +166,7 @@ TEST CASE:
                         "content": [
                             {
                                 "type": "text",
-                                "text": "🤖 AI Generated Test Steps:\n\n" + steps
+                                "text": comment_text
                             }
                         ]
                     }

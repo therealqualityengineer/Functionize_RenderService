@@ -1,0 +1,35 @@
+Application: Practice Software Testing
+Base URL: https://practicesoftwaretesting.com
+
+Test Credentials:
+- Username: admin@practicesoftwaretesting.com
+- Password: welcome01
+
+Pages:
+
+1. Home Page:
+- Header contains: Home, Categories, Contact, Sign in
+- "Sign in" link is used to navigate to login page
+- Product listing page is visible by default
+
+2. Login Page:
+- URL: /auth/login
+- Fields:
+  - Email address (Username field)
+  - Password field
+- Buttons:
+  - Login button
+  - Sign in with Google (ignore for automation)
+- Links:
+  - Register your account
+  - Forgot your password
+- Successful login redirects to Dashboard
+
+3. Dashboard:
+- Displays welcome message after login
+
+Rules:
+- User must click "Sign in" from Home page to reach Login page
+- Valid credentials required for successful login
+- Invalid login shows error message
+- Empty fields show validation messages
