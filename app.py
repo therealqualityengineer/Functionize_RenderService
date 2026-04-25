@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import requests
 import base64
 import os
-from google import genai
 
 app = Flask(__name__)
 
@@ -14,8 +13,8 @@ API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
-# 🔹 Gemini Client
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# 🔹 OpenRouter Config
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # 🔹 Extract Jira description (ADF → text)
 def extract_text(description):
@@ -66,7 +65,7 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 GEMINI AI
+        # 🔥 AI Prompt
         prompt = f"""
 Convert the following manual test case into Functionize test steps.
 
@@ -80,23 +79,30 @@ Test Case:
 {description}
 """
 
+        # 🔥 OpenRouter API call
         try:
-            ai_response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt
+            ai_response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "openrouter/free",
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ]
+                }
             )
 
-            # 🔍 FULL DEBUG (IMPORTANT)
-            print("\n🔍 Raw Gemini Response:\n", ai_response)
+            print("\n🔍 Raw OpenRouter Response:\n", ai_response.text)
 
-            # ✅ SAFE extraction
-            if hasattr(ai_response, "text") and ai_response.text:
-                steps = ai_response.text
-            else:
-                steps = str(ai_response)
+            result = ai_response.json()
+
+            steps = result["choices"][0]["message"]["content"]
 
         except Exception as e:
-            print("❌ Gemini Error:", str(e))
+            print("❌ OpenRouter Error:", str(e))
             steps = f"AI failed: {str(e)}"
 
         print("\n--- AI Generated Steps ---\n", steps)
