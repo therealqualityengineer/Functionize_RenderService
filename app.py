@@ -75,6 +75,7 @@ CONTEXT:
 
 STRICT RULES:
 - Use ACTUAL values from the test case (do NOT replace with examples)
+- Include necessary navigation steps (like clicking Login page/button before typing)
 - DO NOT return code or markdown
 - DO NOT use ``` or quotes
 - Each step must be on a new line
