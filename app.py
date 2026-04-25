@@ -10,13 +10,12 @@ JIRA_DOMAIN = "aruntieto-demo.atlassian.net"
 EMAIL = os.getenv("JIRA_EMAIL")
 API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
-# 🔐 Encode auth
 auth = base64.b64encode(f"{EMAIL}:{API_TOKEN}".encode()).decode()
 
 # 🔹 OpenRouter Config
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# 🔹 Extract Jira description (ADF → text)
+# 🔹 Extract Jira description
 def extract_text(description):
     text = ""
     if not description:
@@ -31,13 +30,54 @@ def extract_text(description):
 
     return text.strip()
 
-# 🔹 Load Mini RAG context
+# 🔹 Load RAG context
 def load_app_context():
     try:
         with open("app_context.txt", "r") as f:
             return f.read()
-    except Exception:
-        return "No app context available"
+    except:
+        return ""
+
+# 🔹 Detect test type
+def detect_test_type(description):
+    desc = description.lower()
+    if "logout" in desc:
+        return "logout"
+    elif "login" in desc:
+        return "login"
+    else:
+        return "generic"
+
+# 🔹 AI Call
+def call_ai(prompt):
+    response = requests.post(
+        url="https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "mistralai/mistral-7b-instruct",
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a strict QA automation generator. Follow output format EXACTLY."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+    )
+
+    result = response.json()
+
+    if "choices" in result and len(result["choices"]) > 0:
+        return result["choices"][0]["message"]["content"]
+
+    return None
 
 # 🔹 Health check
 @app.route("/", methods=["GET"])
@@ -65,18 +105,24 @@ def jira_webhook():
         issue_data = response.json()
 
         if "fields" not in issue_data:
-            print("❌ Jira API Error:", issue_data)
             return jsonify({"error": issue_data}), 400
 
-        description_raw = issue_data["fields"]["description"]
-        description = extract_text(description_raw)
+        description = extract_text(issue_data["fields"]["description"])
 
-        print("\n--- Clean Description ---\n", description)
+        print("\n--- Description ---\n", description)
 
-        # 🔹 Load RAG context
         app_context = load_app_context()
+        test_type = detect_test_type(description)
 
-        # 🔥 FINAL PROMPT (STRICT + RAG)
+        # 🔥 Dynamic task
+        if test_type == "login":
+            task = "Generate COMPLETE test design for login functionality"
+        elif test_type == "logout":
+            task = "Generate COMPLETE test design for logout functionality"
+        else:
+            task = "Generate test steps based on the scenario"
+
+        # 🔥 FINAL PROMPT
         prompt = f"""
 You are a QA automation expert.
 
@@ -84,105 +130,57 @@ APPLICATION CONTEXT:
 {app_context}
 
 TASK:
-Generate COMPLETE test design for login functionality.
+{task}
 
-STRICT OUTPUT FORMAT (MUST FOLLOW EXACTLY):
+STRICT OUTPUT FORMAT:
 
 --- FUNCTIONIZE INPUT START ---
-Open https://practicesoftwaretesting.com
-Click Sign in link
-Type admin@practicesoftwaretesting.com into Email address field
-Type welcome01 into Password field
-Click Login button
-Verify dashboard page is displayed
+<ONLY steps here>
 --- FUNCTIONIZE INPUT END ---
 
 --- NEGATIVE TEST SCENARIOS ---
-- Login with invalid password and verify error message
-- Login with empty email and verify validation message
-- Login with empty password and verify validation message
+- Scenario 1: ...
+- Scenario 2: ...
 
 --- TEST COVERAGE ANALYSIS ---
-- Covered: Valid login flow
-- Missing: Error validations, boundary cases
-- Risks: Missing validation checks
+- Covered:
+- Missing:
+- Risks:
 
 RULES:
-- DO NOT change format
-- DO NOT invent random steps
-- ALWAYS include navigation (Sign in click)
-- ALWAYS use credentials from context
-- ONLY use actions: Open, Click, Type, Verify
-- NO extra text before or after sections
+- Follow format EXACTLY
+- Use correct flow (login/logout)
+- Use real context data
+- Use only: Open, Click, Type, Verify
+- No markdown, no code, no quotes
+- No extra text outside format
 
 TEST CASE:
 {description}
 """
 
-        # 🔥 OpenRouter API call
-        try:
-            ai_response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "mistralai/mistral-7b-instruct",
-                    "temperature": 0.2,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "You are a strict QA automation generator. Follow format EXACTLY."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ]
-                }
-            )
+        # 🔁 Retry mechanism
+        output = None
 
-            print("\n🔍 Raw OpenRouter Response:\n", ai_response.text)
+        for attempt in range(2):
+            print(f"🔁 AI Attempt {attempt + 1}")
 
-            result = ai_response.json()
+            output = call_ai(prompt)
 
-            if "choices" in result and len(result["choices"]) > 0:
-                output = result["choices"][0]["message"]["content"]
+            if output and "--- FUNCTIONIZE INPUT START ---" in output:
+                print("✅ Valid output")
+                break
             else:
-                output = "AI returned no valid response"
+                print("⚠️ Invalid output, retrying...")
 
-            # ✅ HARD VALIDATION
-            if "--- FUNCTIONIZE INPUT START ---" not in output:
-                print("⚠️ Invalid AI output. Using fallback.")
+        # ❌ Final failure
+        if not output or "--- FUNCTIONIZE INPUT START ---" not in output:
+            output = """⚠️ AI could not generate valid structured output.
+Please refine the user story and try again."""
 
-                output = """--- FUNCTIONIZE INPUT START ---
-Open https://practicesoftwaretesting.com
-Click Sign in link
-Type admin@practicesoftwaretesting.com into Email address field
-Type welcome01 into Password field
-Click Login button
-Verify dashboard page is displayed
---- FUNCTIONIZE INPUT END ---
+        print("\n--- FINAL OUTPUT ---\n", output)
 
---- NEGATIVE TEST SCENARIOS ---
-- Login with invalid password and verify error message
-- Login with empty email and verify validation message
-- Login with empty password and verify validation message
-
---- TEST COVERAGE ANALYSIS ---
-- Covered: Valid login flow
-- Missing: Error validation and edge cases
-- Risks: Missing validation scenarios
-"""
-
-        except Exception as e:
-            print("❌ OpenRouter Error:", str(e))
-            output = f"AI failed: {str(e)}"
-
-        print("\n--- FINAL AI OUTPUT ---\n", output)
-
-        # 🔹 Add comment to Jira
+        # 🔹 Post to Jira
         comment_url = f"https://{JIRA_DOMAIN}/rest/api/3/issue/{issue_key}/comment"
 
         comment_text = f"""🤖 AI Generated Test Design
@@ -211,9 +209,7 @@ Verify dashboard page is displayed
         }
 
         headers.update({"Content-Type": "application/json"})
-        comment_response = requests.post(comment_url, json=comment_body, headers=headers)
-
-        print("\n--- Jira Comment Status ---\n", comment_response.status_code)
+        requests.post(comment_url, json=comment_body, headers=headers)
 
         return jsonify({"status": "Success", "issue": issue_key})
 
