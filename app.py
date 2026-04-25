@@ -65,17 +65,33 @@ def jira_webhook():
 
         print("\n--- Clean Description ---\n", description)
 
-        # 🔥 AI Prompt
+        # 🔥 HIGH-QUALITY PROMPT
         prompt = f"""
-Convert the following manual test case into Functionize test steps.
+Convert the following manual test case into clean, automation-ready Functionize steps.
 
-Rules:
-- Use Click, Type, Verify
-- Keep steps clear and short
-- Add final verification
+CONTEXT:
+- Environment: QA
+- Base URL: https://practicesoftwaretesting.com
+
+STRICT RULES:
+- DO NOT return code or markdown
+- DO NOT use ``` or quotes
+- Each step must be on a new line
+- Use only these actions: Open, Click, Type, Verify
+- Use clear field names (Username field, Password field)
+- Keep steps short and readable
+- Add final verification step
 - No explanation
 
-Test Case:
+EXPECTED FORMAT:
+Open https://practicesoftwaretesting.com
+Click Login button
+Type admin@xyz.com into Username field
+Type password into Password field
+Click Login button
+Verify dashboard page is displayed
+
+TEST CASE:
 {description}
 """
 
@@ -99,7 +115,11 @@ Test Case:
 
             result = ai_response.json()
 
-            steps = result["choices"][0]["message"]["content"]
+            # ✅ Safe extraction
+            if "choices" in result and len(result["choices"]) > 0:
+                steps = result["choices"][0]["message"]["content"]
+            else:
+                steps = "AI returned no valid response"
 
         except Exception as e:
             print("❌ OpenRouter Error:", str(e))
